@@ -4,7 +4,6 @@
     { "name": "base", "path":   "/Users/ruan/Odin/base" },
     { "name": "core", "path":   "/Users/ruan/Odin/core" },
     { "name": "vendor", "path": "/Users/ruan/Odin/vendor" },
-    { "name": "libs", "path": "libs" },
     { "name": "src", "path": "src" }
 
   ],

@@ -1,19 +1,18 @@
 compile:
-	odin build ./src \
+	odin build src \
+		-out=build/engine_debug \
 		-debug \
 		-strict-style \
+		-vet \
 		-o:none \
-		-max-error-count:1 \
-		-use-separate-modules \
-		#-collection:libs=./libs \#
-		-out=build/engine_debug
+		-max-error-count:1 
 
 run:
-	odin run ./src \
+	odin run src \
+		-out=build/engine_debug \
 		-debug \
 		-strict-style \
+		-vet \
 		-o:none \
-		-max-error-count:1 \
-		-use-separate-modules \
-		#-collection:libs=./libs \#
-		-out=build/engine_debug
+		-max-error-count:1
+
