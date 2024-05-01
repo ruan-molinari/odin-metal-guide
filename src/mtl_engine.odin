@@ -7,6 +7,7 @@ import NS  "core:sys/darwin/Foundation"
 import GLFW "vendor:glfw"
 
 import "core:fmt"
+import "core:os"
 
 WINDOW_TITLE :: "Hello Metal"
 WINDOW_WIDTH :: 800
@@ -99,13 +100,11 @@ engine_init_window :: proc() -> (err: Error) {
 }
 
 engine_build_shaders :: proc() -> (err: ^NS.Error){
-  shader_url_str := NS.String.alloc()->initWithOdinString("shaders/main_shaders.metallib")
-  defer shader_url_str->release()
+  shader_src, _ := os.read_entire_file_from_filename("shaders/main_shaders.metal")
+  shader_src_str := NS.String.alloc()->initWithOdinString(auto_cast shader_src)
+  defer shader_src_str->release()
 
-  shader_url := NS.URL.alloc()->initFileURLWithPath(shader_url_str)
-  defer shader_url->release()
-
-  engine.library = engine.device->newLibraryWithURL(shader_url) or_return
+  engine.library = engine.device->newLibraryWithSource(shader_src_str, nil) or_return
 
   vertex_function := engine.library->newFunctionWithName(NS.AT("vertex_main"))
   fragment_function := engine.library->newFunctionWithName(NS.AT("fragment_main"))
