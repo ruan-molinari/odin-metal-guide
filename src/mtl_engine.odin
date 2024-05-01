@@ -1,8 +1,8 @@
 package main
 
 import MTL "vendor:darwin/Metal"
-import NS "core:sys/darwin/Foundation"
-import CA "vendor:darwin/QuartzCore"
+import CA  "vendor:darwin/QuartzCore"
+import NS  "core:sys/darwin/Foundation"
 
 import GLFW "vendor:glfw"
 
@@ -38,7 +38,13 @@ engine_init :: proc() -> (err: Error) {
   }
 
   /* Builds the shaders */
-  engine_build_shaders()
+  if res := engine_build_shaders(); res != nil {
+    fmt.eprintfln(
+      "Error building shaders: [Code %v: %s]",
+      res->code(),
+      res->localizedDescription()->odinString(),
+    )
+  }
   engine.command_queue = engine.device->newCommandQueue()
 
   /* Everything went fine */
@@ -93,32 +99,13 @@ engine_init_window :: proc() -> (err: Error) {
 }
 
 engine_build_shaders :: proc() -> (err: ^NS.Error){
-  shader_src := `
-  #include <metal_stdlib>
-	using namespace metal;
+  shader_url_str := NS.String.alloc()->initWithOdinString("shaders/main_shaders.metallib")
+  defer shader_url_str->release()
 
-	struct v2f {
-		float4 position [[position]];
-		half3 color;
-	};
+  shader_url := NS.URL.alloc()->initFileURLWithPath(shader_url_str)
+  defer shader_url->release()
 
-	v2f vertex vertex_main(uint vertex_id                        [[vertex_id]],
-	                       device const packed_float3* positions [[buffer(0)]],
-	                       device const packed_float3* colors    [[buffer(1)]]) {
-		v2f o;
-		o.position = float4(positions[vertex_id], 1.0);
-		o.color = half3(colors[vertex_id]);
-		return o;
-	}
-
-	half4 fragment fragment_main(v2f in [[stage_in]]) {
-		return half4(in.color, 1.0);
-	}
-  `
-  shader_src_str := NS.String.alloc()->initWithOdinString(shader_src)
-  defer shader_src_str->release()
-
-  engine.library = engine.device->newLibraryWithSource(shader_src_str, nil) or_return
+  engine.library = engine.device->newLibraryWithURL(shader_url) or_return
 
   vertex_function := engine.library->newFunctionWithName(NS.AT("vertex_main"))
   fragment_function := engine.library->newFunctionWithName(NS.AT("fragment_main"))
