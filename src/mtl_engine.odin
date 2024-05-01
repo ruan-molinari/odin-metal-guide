@@ -211,11 +211,12 @@ engine_close_window :: proc() {
 }
 
 engine_cleanup :: proc() {
-
   if engine.is_initialized {
     engine_close_window()
+    engine.device->release()
     engine.native_window->release()
     engine.metal_layer->release()
+    engine.library->release()
     engine.pso->release()
     engine.command_queue->release()
   }
