@@ -13,17 +13,21 @@ WINDOW_TITLE :: "Hello Metal"
 WINDOW_WIDTH :: 800
 WINDOW_HEIGHT :: 600
 
+FrameData :: struct {
+  angle: f32,
+}
 
 MTLEngine :: struct {
-  is_initialized: bool,
-  glfw_window:    GLFW.WindowHandle,
-  device:         ^MTL.Device, /* GPU */
-  native_window:  ^NS.Window, /* Native MacOS Cocoa Window */
-  metal_layer:    ^CA.MetalLayer, /* Swapchain */ 
-  library:        ^MTL.Library, /* Metal library that interfaces with the GPU */ 
-  pso:            ^MTL.RenderPipelineState, /* The state of the command pipeline */
-  command_queue:  ^MTL.CommandQueue,
-  arg_buffer:     ^MTL.Buffer,
+  is_initialized:    bool,
+  glfw_window:       GLFW.WindowHandle,
+  device:            ^MTL.Device, /* GPU */
+  native_window:     ^NS.Window, /* Native MacOS Cocoa Window */
+  metal_layer:       ^CA.MetalLayer, /* Swapchain */ 
+  library:           ^MTL.Library, /* Metal library that interfaces with the GPU */ 
+  pso:               ^MTL.RenderPipelineState, /* The state of the command pipeline */
+  command_queue:     ^MTL.CommandQueue,
+  arg_buffer:        ^MTL.Buffer,
+  frame_data_buffer: ^MTL.Buffer,
 }
 
 @(private)
@@ -48,6 +52,11 @@ engine_init :: proc() -> (err: Error) {
       res->localizedDescription()->odinString(),
     )
   }
+
+  engine.frame_data_buffer = engine.device->newBufferWithLength(
+                                              size_of(FrameData),
+                                              {.StorageModeManaged})
+
   engine.command_queue = engine.device->newCommandQueue()
 
   /* Everything went fine */
@@ -164,6 +173,12 @@ engine_run :: proc() -> (err: Error){
   /* Loop until the user closes the window */
   for !GLFW.WindowShouldClose(engine.glfw_window) {
 
+    @static angle: f32
+    frame_data := (^FrameData)(engine.frame_data_buffer->contentsPointer())
+    frame_data.angle = angle
+    angle += 0.01
+    engine.frame_data_buffer->didModifyRange(NS.Range_Make(0, size_of(FrameData)))
+
     /* Render here */
     drawable := engine.metal_layer->nextDrawable()
     assert(drawable != nil)
@@ -186,7 +201,8 @@ engine_run :: proc() -> (err: Error){
     defer render_encoder->release()
 
     render_encoder->setRenderPipelineState(engine.pso)
-    render_encoder->setVertexBuffer(engine.arg_buffer, 0, 0)
+    render_encoder->setVertexBuffer(engine.arg_buffer,        0, 0)
+    render_encoder->setVertexBuffer(engine.frame_data_buffer, 0, 1)
     render_encoder->useResource(vertex_positions_buffer, {.Read})
     render_encoder->useResource(vertex_colors_buffer,    {.Read})
     render_encoder->drawPrimitives(.Triangle, 0, 3)
@@ -221,6 +237,7 @@ engine_cleanup :: proc() {
     engine.pso->release()
     engine.command_queue->release()
     engine.arg_buffer->release()
+    engine.frame_data_buffer->release()
   }
 
   free(engine)
