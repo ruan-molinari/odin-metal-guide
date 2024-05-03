@@ -6,12 +6,16 @@ struct v2f {
   half3 color;
 };
 
-v2f vertex vertex_main(uint vertex_id                        [[vertex_id]],
-    device const packed_float3* positions [[buffer(0)]],
-    device const packed_float3* colors    [[buffer(1)]]) {
+struct Vertex_data {
+  device packed_float3* positions [[id(0)]];
+  device packed_float3* colors    [[id(1)]];
+};
+
+v2f vertex vertex_main(device const Vertex_data* vertex_data [[buffer(0)]],
+                       uint vertex_id [[vertex_id]]) {
   v2f o;
-  o.position = float4(positions[vertex_id], 1.0);
-  o.color = half3(colors[vertex_id]);
+  o.position = float4(vertex_data->positions[vertex_id], 1.0);
+  o.color = half3(vertex_data->colors[vertex_id]);
   return o;
 }
 

@@ -13,15 +13,17 @@ WINDOW_TITLE :: "Hello Metal"
 WINDOW_WIDTH :: 800
 WINDOW_HEIGHT :: 600
 
+
 MTLEngine :: struct {
   is_initialized: bool,
-  glfw_window:  GLFW.WindowHandle,
-  device: ^MTL.Device,
-  native_window: ^NS.Window,
-  metal_layer: ^CA.MetalLayer, // swapchain
-  library: ^MTL.Library,
-  pso: ^MTL.RenderPipelineState,
-  command_queue: ^MTL.CommandQueue,
+  glfw_window:    GLFW.WindowHandle,
+  device:         ^MTL.Device, /* GPU */
+  native_window:  ^NS.Window, /* Native MacOS Cocoa Window */
+  metal_layer:    ^CA.MetalLayer, /* Swapchain */ 
+  library:        ^MTL.Library, /* Metal library that interfaces with the GPU */ 
+  pso:            ^MTL.RenderPipelineState, /* The state of the command pipeline */
+  command_queue:  ^MTL.CommandQueue,
+  arg_buffer:     ^MTL.Buffer,
 }
 
 @(private)
@@ -41,7 +43,7 @@ engine_init :: proc() -> (err: Error) {
   /* Builds the shaders */
   if res := engine_build_shaders(); res != nil {
     fmt.eprintfln(
-      "Error building shaders: [Code %v: %s]",
+      "Error building shaders: [Code (%v): %s]",
       res->code(),
       res->localizedDescription()->odinString(),
     )
@@ -106,7 +108,7 @@ engine_build_shaders :: proc() -> (err: ^NS.Error){
 
   engine.library = engine.device->newLibraryWithSource(shader_src_str, nil) or_return
 
-  vertex_function := engine.library->newFunctionWithName(NS.AT("vertex_main"))
+  vertex_function   := engine.library->newFunctionWithName(NS.AT("vertex_main"))
   fragment_function := engine.library->newFunctionWithName(NS.AT("fragment_main"))
   defer vertex_function->release()
   defer fragment_function->release()
@@ -141,6 +143,18 @@ engine_build_buffers :: proc() -> (vertex_positions_buffer, vertex_colors_buffer
   vertex_positions_buffer = engine.device->newBufferWithSlice(positions[:], {.StorageModeManaged})
   vertex_colors_buffer    = engine.device->newBufferWithSlice(colors[:],    {.StorageModeManaged})
 
+  vertex_function   := engine.library->newFunctionWithName(NS.AT("vertex_main"))
+  defer vertex_function->release()
+
+  arg_encoder := vertex_function->newArgumentEncoder(0)
+  defer arg_encoder->release()
+
+  engine.arg_buffer = engine.device->newBufferWithLength(arg_encoder->encodedLength(), {.StorageModeManaged})
+  arg_encoder->setArgumentBufferWithOffset(engine.arg_buffer, 0)
+  arg_encoder->setBuffer(vertex_positions_buffer, 0, 0)
+  arg_encoder->setBuffer(vertex_colors_buffer,    0, 1)
+  engine.arg_buffer->didModifyRange(NS.Range_Make(0, engine.arg_buffer->length()))
+
   return
 }
 
@@ -172,8 +186,9 @@ engine_run :: proc() -> (err: Error){
     defer render_encoder->release()
 
     render_encoder->setRenderPipelineState(engine.pso)
-    render_encoder->setVertexBuffer(vertex_positions_buffer, 0, 0)
-    render_encoder->setVertexBuffer(vertex_colors_buffer,    0, 1)
+    render_encoder->setVertexBuffer(engine.arg_buffer, 0, 0)
+    render_encoder->useResource(vertex_positions_buffer, {.Read})
+    render_encoder->useResource(vertex_colors_buffer,    {.Read})
     render_encoder->drawPrimitives(.Triangle, 0, 3)
 
     render_encoder->endEncoding()
@@ -205,6 +220,7 @@ engine_cleanup :: proc() {
     engine.library->release()
     engine.pso->release()
     engine.command_queue->release()
+    engine.arg_buffer->release()
   }
 
   free(engine)
