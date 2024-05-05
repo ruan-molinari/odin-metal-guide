@@ -9,12 +9,19 @@ import GLFW "vendor:glfw"
 import "core:fmt"
 import "core:os"
 
+import "core:math"
+
+// Window
 WINDOW_TITLE :: "Hello Metal"
 WINDOW_WIDTH :: 800
 WINDOW_HEIGHT :: 600
 
-FrameData :: struct {
-  angle: f32,
+// Engine
+NUM_INSTANCES :: 32
+
+Instance_Data :: struct {
+  transform: matrix[4, 4]f32,
+  color:     [4]f32,
 }
 
 MTLEngine :: struct {
@@ -26,8 +33,6 @@ MTLEngine :: struct {
   library:           ^MTL.Library, /* Metal library that interfaces with the GPU */ 
   pso:               ^MTL.RenderPipelineState, /* The state of the command pipeline */
   command_queue:     ^MTL.CommandQueue,
-  arg_buffer:        ^MTL.Buffer,
-  frame_data_buffer: ^MTL.Buffer,
 }
 
 @(private)
@@ -52,10 +57,6 @@ engine_init :: proc() -> (err: Error) {
       res->localizedDescription()->odinString(),
     )
   }
-
-  engine.frame_data_buffer = engine.device->newBufferWithLength(
-                                              size_of(FrameData),
-                                              {.StorageModeManaged})
 
   engine.command_queue = engine.device->newCommandQueue()
 
@@ -134,50 +135,60 @@ engine_build_shaders :: proc() -> (err: ^NS.Error){
   return
 }
 
-engine_build_buffers :: proc() -> (vertex_positions_buffer, vertex_colors_buffer: ^MTL.Buffer) {
-  NUM_VERTICES :: 3
+engine_build_buffers :: proc() -> (vertex_buffer, index_buffer, instance_buffer: ^MTL.Buffer) {
+  s :: 0.5
 
-  positions := [NUM_VERTICES][3]f32{
-    { -0.8,  0.8, 0.0 },
-    {  0.0, -0.8, 0.0 },
-    { +0.8,  0.8, 0.0 },
+  positions := [][3]f32{
+    {-s, -s, +s},
+    {+s, -s, +s},
+    {+s, +s, +s},
+    {-s, +s, +s},
   }
+  indices := []u16{
+		0, 1, 2,
+		2, 3, 0,
+	}
 
-  colors := [NUM_VERTICES][3]f32{
-    { 1.0, 0.3, 0.2 },
-    { 0.8, 1.0, 0.0 },
-    { 0.8, 0.0, 1.0 },
-  }
-
-  vertex_positions_buffer = engine.device->newBufferWithSlice(positions[:], {.StorageModeManaged})
-  vertex_colors_buffer    = engine.device->newBufferWithSlice(colors[:],    {.StorageModeManaged})
-
-  vertex_function   := engine.library->newFunctionWithName(NS.AT("vertex_main"))
-  defer vertex_function->release()
-
-  arg_encoder := vertex_function->newArgumentEncoder(0)
-  defer arg_encoder->release()
-
-  engine.arg_buffer = engine.device->newBufferWithLength(arg_encoder->encodedLength(), {.StorageModeManaged})
-  arg_encoder->setArgumentBufferWithOffset(engine.arg_buffer, 0)
-  arg_encoder->setBuffer(vertex_positions_buffer, 0, 0)
-  arg_encoder->setBuffer(vertex_colors_buffer,    0, 1)
-  engine.arg_buffer->didModifyRange(NS.Range_Make(0, engine.arg_buffer->length()))
+  vertex_buffer   = engine.device->newBufferWithSlice(positions[:], {.StorageModeManaged})
+  index_buffer    = engine.device->newBufferWithSlice(indices[:],   {.StorageModeManaged})
+  instance_buffer = engine.device->newBufferWithLength(
+    NUM_INSTANCES*size_of(Instance_Data),
+    {.StorageModeManaged},
+  )
 
   return
 }
 
 engine_run :: proc() -> (err: Error){
-  vertex_positions_buffer, vertex_colors_buffer := engine_build_buffers()
+  vertex_buffer, index_buffer, instance_buffer := engine_build_buffers()
+  defer vertex_buffer->release()
+  defer index_buffer->release()
+  defer instance_buffer->release()
 
   /* Loop until the user closes the window */
   for !GLFW.WindowShouldClose(engine.glfw_window) {
 
-    @static angle: f32
-    frame_data := (^FrameData)(engine.frame_data_buffer->contentsPointer())
-    frame_data.angle = angle
-    angle += 0.01
-    engine.frame_data_buffer->didModifyRange(NS.Range_Make(0, size_of(FrameData)))
+    {
+      @static angle: f32
+      angle += 0.01
+      instance_data := instance_buffer->contentsAsSlice([]Instance_Data)[:NUM_INSTANCES]
+      for instance, idx in &instance_data {
+        scl :: 0.1
+
+        i := f32(idx) / NUM_INSTANCES
+        xoff := (i*2 - 1) + (1.0/NUM_INSTANCES)
+        yoff := math.sin((i + angle) * math.TAU)
+        instance.transform = matrix[4, 4]f32{
+          scl * math.sin(angle),  scl * math.cos(angle), 0, xoff,
+          scl * math.cos(angle), -scl * math.sin(angle), 0, yoff,
+                              0,                      0, 0,    0,
+                              0,                      0, 0,    1,
+        }
+        instance.color = {i, 1-i, math.sin(math.TAU * i), 1}
+      }
+      sz := NS.UInteger(len(instance_data)*size_of(instance_data[0]))
+      instance_buffer->didModifyRange(NS.Range_Make(0, sz))
+    }
 
     /* Render here */
     drawable := engine.metal_layer->nextDrawable()
@@ -201,11 +212,9 @@ engine_run :: proc() -> (err: Error){
     defer render_encoder->release()
 
     render_encoder->setRenderPipelineState(engine.pso)
-    render_encoder->setVertexBuffer(engine.arg_buffer,        0, 0)
-    render_encoder->setVertexBuffer(engine.frame_data_buffer, 0, 1)
-    render_encoder->useResource(vertex_positions_buffer, {.Read})
-    render_encoder->useResource(vertex_colors_buffer,    {.Read})
-    render_encoder->drawPrimitives(.Triangle, 0, 3)
+    render_encoder->setVertexBuffer(vertex_buffer,   0, 0)
+    render_encoder->setVertexBuffer(instance_buffer, 0, 1)
+    render_encoder->drawIndexedPrimitivesWithInstanceCount(.Triangle, 6, .UInt16, index_buffer, 0, NUM_INSTANCES)
 
     render_encoder->endEncoding()
 
@@ -236,8 +245,6 @@ engine_cleanup :: proc() {
     engine.library->release()
     engine.pso->release()
     engine.command_queue->release()
-    engine.arg_buffer->release()
-    engine.frame_data_buffer->release()
   }
 
   free(engine)
